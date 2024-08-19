@@ -25,6 +25,7 @@ const char *myGScriptId = "DEPLOYMENT ID";
 //------------------------------------------
 
 
+
 // Enter command (insert_row or append_row) and your Google Sheets sheet name (default is Sheet1):
 String payload_base =  "{\"command\": \"insert_row\", \"sheet_name\": \"Sheet1\", \"values\": ";
 String payload = "";
@@ -37,10 +38,43 @@ const char* fingerprint = "";
 String url = String("/macros/s/") + myGScriptId + "/exec";
 HTTPSRedirect* client = nullptr;
 
-void setup() {
+void setup() 
+{
   Serial.begin(115200);
   delay(100);
-  Serial.println("Scanning for WiFi networks...");
+  connectToWIFI();
+  delay(100);
+  connectToGoogleScript();
+  delay(100);
+  connectToSensor();
+}
+
+
+void loop() 
+{
+  float living_room_temperature = bmp.readTemperature();
+  float bedroom_temp = 0;
+  float office_temp = 0;
+  Serial.print("Living Room Temperature = ");
+  Serial.print(living_room_temperature);
+  Serial.println(" *C");
+
+  sendData(living_room_temperature, bedroom_temp, office_temp); 
+  delay(10000);
+}
+
+
+
+
+//------------------connectToWIFI------------------------------
+/*
+Scans all wifi signals and prints it with signal strength
+Attempts to connect to the wifi, will wait until its connected 
+*/
+//-------------------------------------------------------------
+void connectToWIFI()
+{
+Serial.println("Scanning for WiFi networks...");
   int n = WiFi.scanNetworks();
   if (n == 0) 
   {
@@ -71,15 +105,33 @@ void setup() {
           Serial.println(WiFi.localIP());
         }
   }
-  delay(100);
+}
 
-// Use HTTPSRedirect class to create a new TLS connection
+
+
+//-------------------------connectToSensor-----------------------
+// Connecting to sensor, will wait if cannot connect
+//---------------------------------------------------------------
+void connectToSensor()
+{
+    if (!bmp.begin(0x76)) {
+    Serial.println(F("Could not find a valid BMP280 sensor, check wiring!"));
+    while (1);
+  }
+}
+
+//------------------connectToGoogleScript------------------
+// Connecting to sensor, will wait if cannot connect
+//---------------------------------------------------------
+void connectToGoogleScript()
+{
+  // Use HTTPSRedirect class to create a new TLS connection
   client = new HTTPSRedirect(httpsPort);
   client->setInsecure();
   client->setPrintResponseBody(true);
   client->setContentTypeHeader("application/json");
 
-    // Use HTTPSRedirect class to create a new TLS connection
+  // Use HTTPSRedirect class to create a new TLS connection
   client = new HTTPSRedirect(httpsPort);
   client->setInsecure();
   client->setPrintResponseBody(true);
@@ -112,30 +164,11 @@ void setup() {
   }
   delete client;    // delete HTTPSRedirect object
   client = nullptr; // delete HTTPSRedirect object
-
-
-  if (!bmp.begin(0x76)) {
-    Serial.println(F("Could not find a valid BMP280 sensor, check wiring!"));
-    while (1);
-  }
-
-
-}
-
-void loop() {
-  float living_room_temperature = bmp.readTemperature();
-  float bedroom_temp = 0;
-  float office_temp = 0;
-  Serial.print("Living Room Temperature = ");
-  Serial.print(living_room_temperature);
-  Serial.println(" *C");
-
-  sendData(living_room_temperature, bedroom_temp, office_temp); 
-  delay(10000);
 }
 
 
-void sendData(float value0, float value1, float value2) {
+void sendData(float value0, float value1, float value2)
+{
  static bool flag = false;
   if (!flag){
     client = new HTTPSRedirect(httpsPort);
@@ -161,7 +194,7 @@ void sendData(float value0, float value1, float value2) {
   
   // Publish data to Google Sheets
   Serial.println("Publishing data...");
-  Serial.println(payload);
+  // Serial.println(payload); (uncomment for debug)
   if(client->POST(url, myhost, payload))
   { 
     Serial.println("POST SUCCESS");
@@ -173,4 +206,4 @@ void sendData(float value0, float value1, float value2) {
  
   delay(5000);
 }
- 
+
