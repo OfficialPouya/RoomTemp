@@ -2,18 +2,44 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BMP280.h>
 #include <ESP8266WiFi.h>
+#include <WiFiClientSecure.h>
+#include "HTTPSRedirect.h"
 
 // Replace with your network credentials
-const char* ssid = "your_SSID";
-const char* password = "your_PASSWORD";
-Adafruit_BMP280 bmp; // I2C
+const char* my_ssid = "WIFI NAME";
+const char* my_password = "PASSWORD";
+
+//------------------I2C----------------------
+Adafruit_BMP280 bmp;
+//------------------------------------------
+
+//-------------Host & httpsPort-------------
+
+//---------WiFiClientSecure object----------
+// WiFiClientSecure client;
+//------------------------------------------
+
+//------------------------------------------
+// Enter Google Script Deployment ID:
+const char *myGScriptId = "DEPLOYMENT ID";
+//------------------------------------------
+
+
+// Enter command (insert_row or append_row) and your Google Sheets sheet name (default is Sheet1):
+String payload_base =  "{\"command\": \"insert_row\", \"sheet_name\": \"Sheet1\", \"values\": ";
+String payload = "";
+
+// Google Sheets setup (do not edit)
+const char* myhost = "script.google.com";
+const int httpsPort = 443;
+const char* fingerprint = "";
+
+String url = String("/macros/s/") + myGScriptId + "/exec";
+HTTPSRedirect* client = nullptr;
 
 void setup() {
   Serial.begin(115200);
-
-  delay(1000);
-  
-  //Scan for Wifi
+  delay(100);
   Serial.println("Scanning for WiFi networks...");
   int n = WiFi.scanNetworks();
   if (n == 0) 
@@ -26,18 +52,14 @@ void setup() {
     for (int i = 0; i < n; ++i) 
     {
       Serial.printf("%d: %s, Signal strength (RSSI): %d dBm\n", i + 1, WiFi.SSID(i).c_str(), WiFi.RSSI(i));
-      delay(10);
-      if(WiFi.SSID(i) == ssid)
-      {
-        Serial.println(ssid);
-        Serial.println(WiFi.SSID(i));
-        Serial.println("Your network is in range");
-        Serial.println("Connecting to WiFi...");
-        WiFi.begin(ssid, password);
+      delay(10);    
+    }
+     Serial.println("Connecting to WiFi...");
+      WiFi.begin(my_ssid, my_password);
         // Wait for connection
         while (WiFi.status() != WL_CONNECTED)
         {
-          delay(1000);
+          delay(500);
           Serial.print(".");
         }
         if(WiFi.status() == WL_CONNECTED)
@@ -48,12 +70,48 @@ void setup() {
           Serial.print("IP Address: ");
           Serial.println(WiFi.localIP());
         }
-      }
-      break;
+  }
+  delay(100);
+
+// Use HTTPSRedirect class to create a new TLS connection
+  client = new HTTPSRedirect(httpsPort);
+  client->setInsecure();
+  client->setPrintResponseBody(true);
+  client->setContentTypeHeader("application/json");
+
+    // Use HTTPSRedirect class to create a new TLS connection
+  client = new HTTPSRedirect(httpsPort);
+  client->setInsecure();
+  client->setPrintResponseBody(true);
+  client->setContentTypeHeader("application/json");
+  
+  Serial.print("Connecting to ");
+  Serial.println(myhost);
+
+  // Try to connect for a maximum of 5 times
+  bool flag = false;
+  for (int i=0; i<5; i++)
+  { 
+    int retval = client->connect(myhost, httpsPort);
+    if (retval == 1)
+    {
+       flag = true;
+       Serial.println("Connected");
+       break;
+    }
+    else
+    {
+      Serial.println("Connection failed. Retrying...");
     }
   }
-
-  delay(100);
+  if (!flag)
+  {
+    Serial.print("Could not connect to server: ");
+    Serial.println(myhost);
+    return;
+  }
+  delete client;    // delete HTTPSRedirect object
+  client = nullptr; // delete HTTPSRedirect object
 
 
   if (!bmp.begin(0x76)) {
@@ -65,11 +123,54 @@ void setup() {
 }
 
 void loop() {
-  float temperature = bmp.readTemperature();
-  Serial.print("Temperature = ");
-  Serial.print(temperature);
+  float living_room_temperature = bmp.readTemperature();
+  float bedroom_temp = 0;
+  float office_temp = 0;
+  Serial.print("Living Room Temperature = ");
+  Serial.print(living_room_temperature);
   Serial.println(" *C");
 
-
-  delay(2000); // Wait for 2 seconds before reading again
+  sendData(living_room_temperature, bedroom_temp, office_temp); 
+  delay(10000);
 }
+
+
+void sendData(float value0, float value1, float value2) {
+ static bool flag = false;
+  if (!flag){
+    client = new HTTPSRedirect(httpsPort);
+    client->setInsecure();
+    flag = true;
+    client->setPrintResponseBody(true);
+    client->setContentTypeHeader("application/json");
+  }
+  if (client != nullptr){
+    if (!client->connected()){
+
+      client->connect(myhost, httpsPort);
+    }
+  }
+
+  else
+  {
+    Serial.println("Error creating client object!");
+  }
+  
+  // Create json object
+  payload = payload_base + "\"" + value0 + "," + value1 + "," + value2 + "\"}";
+  
+  // Publish data to Google Sheets
+  Serial.println("Publishing data...");
+  Serial.println(payload);
+  if(client->POST(url, myhost, payload))
+  { 
+    Serial.println("POST SUCCESS");
+  }
+  else
+  {
+    Serial.println("Error While Connecting");
+  }
+ 
+  delay(5000);
+}
+ 
